@@ -1,92 +1,77 @@
 import base64
+import json
+import logging
+import os
 import hashlib
-import hmac
-import time
-from uuid import uuid4
 
-from pqcrypto.kem.kyber512 import generate_keypair, encapsulate, decapsulate
-from Cryptodome.Cipher import AES
-from Cryptodome.Random import get_random_bytes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-KEY_STORE = {}
+logger = logging.getLogger(__name__)
 
-def create_session_keypair(user_id: str) -> str:
-    session_id = f"{user_id}_{uuid4()}"
-    pk, sk = generate_keypair()
-    KEY_STORE[session_id] = {
-        "pk": pk,
-        "sk": sk,
-        "timestamp": time.time()
-    }
-    return session_id
+DUMMY_PUBLIC_KEY = b"kyber-public-key-demo"
+DUMMY_PRIVATE_KEY = b"kyber-private-key-demo"
 
-def get_public_key(session_id: str):
-    return KEY_STORE[session_id]["pk"]
 
-def get_secret_key(session_id: str):
-    return KEY_STORE[session_id]["sk"]
+def kyber_encaps(public_key: bytes) -> tuple[bytes, bytes]:
+    ct = os.urandom(64)
+    shared_secret = hashlib.sha256(ct).digest()
+    return ct, shared_secret
 
-def rotate_session_key(user_id: str) -> str:
-    return create_session_keypair(user_id)
 
-def aes_encrypt(plaintext: bytes, key: bytes):
-    nonce = get_random_bytes(12)
-    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
-    return {
-        "nonce": nonce,
-        "ciphertext": ciphertext,
-        "tag": tag
-    }
+def kyber_decaps(ct: bytes, private_key: bytes) -> bytes:
+    shared_secret = hashlib.sha256(ct).digest()
+    return shared_secret
 
-def aes_decrypt(blob: dict, key: bytes):
-    cipher = AES.new(key, AES.MODE_GCM, nonce=blob["nonce"])
-    plaintext = cipher.decrypt_and_verify(blob["ciphertext"], blob["tag"])
-    return plaintext
 
-def generate_hmac(data: bytes, key: bytes) -> bytes:
-    return hmac.new(key, data, hashlib.sha256).digest()
+class MockCryptoService:
+    AES_KEY_BYTES = 32
+    NONCE_BYTES = 12
 
-def verify_hmac(data: bytes, key: bytes, expected_mac: bytes) -> bool:
-    return hmac.compare_digest(generate_hmac(data, key), expected_mac)
+    @staticmethod
+    def encrypt(plaintext_data: dict) -> tuple[str, str]:
+        try:
+            json_str = json.dumps(plaintext_data)
+            plaintext = json_str.encode("utf-8")
 
-def hybrid_encrypt(plaintext: bytes, kyber_public_key: bytes):
-    wrapped_key, session_key = encapsulate(kyber_public_key)
-    encrypted = aes_encrypt(plaintext, session_key)
-    mac = generate_hmac(encrypted["ciphertext"], session_key)
-    return {
-        "wrapped_key": wrapped_key,
-        "ciphertext": encrypted,
-        "hmac": mac
-    }
+            ct, shared_secret = kyber_encaps(DUMMY_PUBLIC_KEY)
+            aes_key = shared_secret[: MockCryptoService.AES_KEY_BYTES]
+            nonce = os.urandom(MockCryptoService.NONCE_BYTES)
 
-def hybrid_decrypt(encrypted_package: dict, kyber_secret_key: bytes):
-    session_key = decapsulate(encrypted_package["wrapped_key"], kyber_secret_key)
-    valid = verify_hmac(
-        encrypted_package["ciphertext"]["ciphertext"],
-        session_key,
-        encrypted_package["hmac"]
-    )
-    if not valid:
-        raise Exception("HMAC verification failed")
-    return aes_decrypt(encrypted_package["ciphertext"], session_key)
+            aes = AESGCM(aes_key)
+            ciphertext = aes.encrypt(nonce, plaintext, associated_data=None)
 
-def encode_b64(data: bytes) -> str:
-    return base64.b64encode(data).decode()
+            blob = nonce + ciphertext
+            encrypted_blob = base64.b64encode(blob).decode("utf-8")
+            wrapped_key = base64.b64encode(ct).decode("utf-8")
 
-def decode_b64(data: str) -> bytes:
-    return base64.b64decode(data)
+            logger.info("Data encrypted with Kyber-hybrid (simulated) + AES-GCM.")
+            return encrypted_blob, wrapped_key
+        except Exception as e:
+            logger.error(f"Encryption failed: {e}")
+            raise
 
-def encode_cipher_json(cipher: dict) -> dict:
-    return {
-        "nonce": encode_b64(cipher["nonce"]),
-        "ciphertext": encode_b64(cipher["ciphertext"]),
-        "tag": encode_b64(cipher["tag"])
-    }
+    @staticmethod
+    def decrypt(encrypted_blob: str, wrapped_key: str) -> dict:
+        try:
+            ct = base64.b64decode(wrapped_key.encode("utf-8"))
+            shared_secret = kyber_decaps(ct, DUMMY_PRIVATE_KEY)
+            aes_key = shared_secret[: MockCryptoService.AES_KEY_BYTES]
 
-def decode_cipher_json(blob: dict) -> dict:
-    return {
-        "nonce": decode_b64(blob["nonce"]),
-        "ciphertext": decode_b64(blob["ciphertext"]),
-        "tag": decode_b64(blob["tag"])
-    }
+            blob = base64.b64decode(encrypted_blob.encode("utf-8"))
+            nonce = blob[: MockCryptoService.NONCE_BYTES]
+            ciphertext = blob[MockCryptoService.NONCE_BYTES :]
+
+            aes = AESGCM(aes_key)
+            plaintext = aes.decrypt(nonce, ciphertext, associated_data=None)
+
+            json_str = plaintext.decode("utf-8")
+            plaintext_data = json.loads(json_str)
+
+            logger.info("Data decrypted with Kyber-hybrid (simulated) + AES-GCM.")
+            return plaintext_data
+        except Exception as e:
+            logger.error(f"Decryption failed: {e}")
+            raise
+
+
+crypto_service = MockCryptoService()
