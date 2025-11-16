@@ -3,85 +3,115 @@ import json
 import logging
 from app.config import settings
 from app.models.schemas import AIAnalysisResult, PatientIntakeData, LabResults
-from app.utils.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
 # Configure Gemini
 genai.configure(api_key=settings.GEMINI_API_KEY)
 
+
 async def analyze_patient_data(
     intake_data: PatientIntakeData,
     lab_results: LabResults
 ) -> AIAnalysisResult:
     """
-    Analyze patient data using Google Gemini (FREE!)
+    Analyze patient data using Google Gemini AI.
+    
+    Returns structured clinical analysis with risk assessment and recommendations.
     """
     try:
-        # Format user prompt
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            age=intake_data.age,
-            gender=intake_data.gender,
-            symptoms=intake_data.symptoms,
-            medical_history=", ".join(intake_data.medical_history) if intake_data.medical_history else "None",
-            medications=", ".join(intake_data.current_medications) if intake_data.current_medications else "None",
-            glucose=lab_results.fasting_glucose,
-            hba1c=lab_results.hba1c,
-            creatinine=lab_results.creatinine,
-            cholesterol=lab_results.total_cholesterol,
-            ldl=lab_results.ldl,
-            hdl=lab_results.hdl,
-            triglycerides=lab_results.triglycerides,
-            lab_notes=lab_results.notes or "None"
-        )
+        logger.info("Starting AI analysis with Gemini")
         
-        logger.info("Sending request to Gemini API...")
+        # Create the prompt
+        prompt = f"""You are an experienced clinical AI assistant. Analyze the following patient data and provide a structured clinical assessment.
+
+PATIENT INTAKE:
+- Age: {intake_data.age}
+- Gender: {intake_data.gender}
+- Chief Complaint: {intake_data.chief_complaint}
+- Medical History: {', '.join(intake_data.medical_history)}
+- Current Medications: {', '.join(intake_data.current_medications)}
+- Allergies: {', '.join(intake_data.allergies)}
+- Symptoms: {intake_data.symptoms}
+- Duration: {intake_data.symptom_duration}
+
+LAB RESULTS:
+- Glucose: {lab_results.glucose} mg/dL
+- HbA1c: {lab_results.hba1c}%
+- Total Cholesterol: {lab_results.cholesterol} mg/dL
+- Triglycerides: {lab_results.triglycerides} mg/dL
+- HDL: {lab_results.hdl} mg/dL
+- LDL: {lab_results.ldl} mg/dL
+- Blood Pressure: {lab_results.blood_pressure}
+- BMI: {lab_results.bmi}
+
+Please provide a clinical analysis in the following JSON format (respond ONLY with valid JSON, no markdown):
+
+{{
+  "risk_score": <0-100 integer>,
+  "primary_concerns": ["concern1", "concern2"],
+  "differential_diagnoses": ["diagnosis1", "diagnosis2"],
+  "recommended_tests": ["test1", "test2"],
+  "follow_up_questions": ["question1", "question2"],
+  "recommendations": ["recommendation1", "recommendation2"],
+  "clinical_summary": "Brief clinical summary paragraph"
+}}
+
+IMPORTANT: Respond ONLY with the JSON object. Do not include markdown formatting, backticks, or any text outside the JSON structure."""
+
+        # Use Gemini 2.5 Flash
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
-        # Use Gemini
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
-        
-        response = model.generate_content(
-            full_prompt,
-            generation_config={
-                "temperature": 0.3,
-                "max_output_tokens": 1500,
-            }
-        )
+        response = model.generate_content(prompt)
         
         # Parse response
-        response_text = response.text
+        response_text = response.text.strip()
         
-        # Extract JSON (Gemini might wrap it in markdown)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-            
-        ai_result = json.loads(response_text)
+        # Remove markdown formatting if present
+        response_text = response_text.replace('```json\n', '').replace('```\n', '').replace('```', '').strip()
         
-        logger.info(f"AI analysis completed. Risk score: {ai_result.get('risk_score')}")
+        # Parse JSON
+        analysis_data = json.loads(response_text)
         
-        return AIAnalysisResult(**ai_result)
+        # Create AIAnalysisResult
+        result = AIAnalysisResult(
+            risk_score=analysis_data["risk_score"],
+            primary_concerns=analysis_data["primary_concerns"],
+            differential_diagnoses=analysis_data["differential_diagnoses"],
+            recommended_tests=analysis_data["recommended_tests"],
+            follow_up_questions=analysis_data["follow_up_questions"],
+            recommendations=analysis_data["recommendations"],
+            clinical_summary=analysis_data["clinical_summary"]
+        )
+        
+        logger.info(f"AI analysis completed. Risk score: {result.risk_score}")
+        return result
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse Gemini response as JSON: {e}")
+        logger.error(f"Raw response: {response_text}")
+        
+        # Fallback response
+        return AIAnalysisResult(
+            risk_score=50,
+            primary_concerns=["Unable to analyze - AI service error"],
+            differential_diagnoses=["Manual review required"],
+            recommended_tests=["Complete clinical examination"],
+            follow_up_questions=["Please review patient data manually"],
+            recommendations=["Manual clinical assessment needed"],
+            clinical_summary="AI analysis unavailable. Please conduct manual review."
+        )
         
     except Exception as e:
-        logger.error(f"Error in AI analysis: {e}")
-        return _get_fallback_response()
-
-def _get_fallback_response() -> AIAnalysisResult:
-    """Fallback response if API fails"""
-    logger.warning("Using fallback AI response")
-    return AIAnalysisResult(
-        risk_score=5.0,
-        risk_level="moderate",
-        diagnosis_suggestions=[
-            "Unable to complete AI analysis. Please review patient data manually."
-        ],
-        follow_up_questions=[
-            "Please conduct a thorough clinical examination"
-        ],
-        recommendations=[
-            "Manual review required due to AI system unavailability"
-        ]
-    )
+        logger.error(f"AI analysis failed: {e}")
+        
+        # Fallback response
+        return AIAnalysisResult(
+            risk_score=50,
+            primary_concerns=["AI service temporarily unavailable"],
+            differential_diagnoses=["Requires manual assessment"],
+            recommended_tests=["Standard clinical workup"],
+            follow_up_questions=["Review symptoms and history"],
+            recommendations=["Manual clinical review recommended"],
+            clinical_summary="AI analysis service is currently unavailable. Please proceed with standard clinical assessment."
+        )
