@@ -1,0 +1,12 @@
+{
+  "patient_id": null,
+  "doctor_id": "11111111-1111-1111-1111-111111111111",
+  "appointment_time": "2025-11-20T10:00:00Z",
+  "encrypted_intake": "IAZwZq4OnZvKTxZTdlB9Ca3cxQwuhVbpM5Iuopapamc5Gyrwt/04LH9j8Kfm0v3APGLKuHNY85FvsR83/YLcLjZ0GV6AcjH+GKMNd+KAgij6oac4Ffx777NISKUKDdyhs5ybMgXcvwFsRCSzvkoriDl9cLbm6JBtlPvu/TQjJU5PVHUrLLzo7sJJLdscBniSsBomXZfnGYfQW2P+VzFoYahGlxR320J61Y8IGi7T4EtyGaVxg6VtDN/LvJC2AvFuCWJeg45HVzU01Y8HccHTS/M/m4q8vFy2RCx/x/+AMb2W9Kax3k9Y+Fk2susP0wfQohw=",
+  "encrypted_lab_results": "ty/Prq/UJ/evL3dPS/ATDCE9f6lXdoUKOCc8BNjur6u0FUM6y9rSgYPAM1hrkX+ZqpfIRTyhiNRx42gB9dcM4ePbMW7my2J3NygQiHHVyp0N2F/2clRywjGqfe9TXj+v2ikIEohaidzakcKKLQcNq4asVS3Lz41dqZvuDwipJawS0FC597jMDcUT4+DTmQ+cjpzfUxPgqnLNYDAunUQ8bcBgJLw18G7WZwUkoFXaWWrYTmsW557/BYKSVoPVGZlUoQ==",
+  "wrapped_key": "kxihNzd20DT21wfhAvcRiNFMc39XuUlC2IG/jVXLseDWyB3/dPbG1SKLBrwfUryB5aOQ1G0PzGyzX1HS0biD/Q==",
+  "metadata": {
+    "encryption_algorithm": "PQC-Hybrid-Demo",
+    "key_algorithm": "Kyber-Demo"
+  }
+}
