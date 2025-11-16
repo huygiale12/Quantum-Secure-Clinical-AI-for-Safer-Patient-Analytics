@@ -1,151 +1,92 @@
 import base64
-import json
-import logging
-import os
 import hashlib
+import hmac
+import time
+from uuid import uuid4
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from pqcrypto.kem.kyber512 import generate_keypair, encapsulate, decapsulate
+from Cryptodome.Cipher import AES
+from Cryptodome.Random import get_random_bytes
 
-logger = logging.getLogger(__name__)
+KEY_STORE = {}
 
+def create_session_keypair(user_id: str) -> str:
+    session_id = f"{user_id}_{uuid4()}"
+    pk, sk = generate_keypair()
+    KEY_STORE[session_id] = {
+        "pk": pk,
+        "sk": sk,
+        "timestamp": time.time()
+    }
+    return session_id
 
-# ==============================
-#  Kyber-like KEM (SIMULATION)
-# ==============================
-#
-# Ý tưởng:
-# - Thay vì dùng lib Kyber thật, ta mô phỏng KEM:
-#   ct            = os.urandom(64)
-#   shared_secret = SHA256(ct)
-#
-# - Encrypt:
-#     ct, shared_secret = kyber_encaps(PUBLIC_KEY)
-#     aes_key = shared_secret[:32]
-# - Decrypt:
-#     shared_secret = kyber_decaps(ct, PRIVATE_KEY)
-#     aes_key = shared_secret[:32]
-#
-# Sau này muốn dùng Kyber thật, chỉ việc thay
-# thân 2 hàm kyber_encaps / kyber_decaps.
+def get_public_key(session_id: str):
+    return KEY_STORE[session_id]["pk"]
 
+def get_secret_key(session_id: str):
+    return KEY_STORE[session_id]["sk"]
 
-DUMMY_PUBLIC_KEY = b"kyber-public-key-demo"
-DUMMY_PRIVATE_KEY = b"kyber-private-key-demo"
+def rotate_session_key(user_id: str) -> str:
+    return create_session_keypair(user_id)
 
+def aes_encrypt(plaintext: bytes, key: bytes):
+    nonce = get_random_bytes(12)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+    return {
+        "nonce": nonce,
+        "ciphertext": ciphertext,
+        "tag": tag
+    }
 
-def kyber_encaps(public_key: bytes) -> tuple[bytes, bytes]:
-    """
-    Mô phỏng Kyber Encaps:
-    - Tạo ct ngẫu nhiên
-    - shared_secret = SHA256(ct)
-    """
-    ct = os.urandom(64)  # giả lập Kyber ciphertext
-    shared_secret = hashlib.sha256(ct).digest()  # 32 bytes
-    return ct, shared_secret
+def aes_decrypt(blob: dict, key: bytes):
+    cipher = AES.new(key, AES.MODE_GCM, nonce=blob["nonce"])
+    plaintext = cipher.decrypt_and_verify(blob["ciphertext"], blob["tag"])
+    return plaintext
 
+def generate_hmac(data: bytes, key: bytes) -> bytes:
+    return hmac.new(key, data, hashlib.sha256).digest()
 
-def kyber_decaps(ct: bytes, private_key: bytes) -> bytes:
-    """
-    Mô phỏng Kyber Decaps:
-    - shared_secret = SHA256(ct)
-    (giống với kyber_encaps → không cần state)
-    """
-    shared_secret = hashlib.sha256(ct).digest()
-    return shared_secret
+def verify_hmac(data: bytes, key: bytes, expected_mac: bytes) -> bool:
+    return hmac.compare_digest(generate_hmac(data, key), expected_mac)
 
+def hybrid_encrypt(plaintext: bytes, kyber_public_key: bytes):
+    wrapped_key, session_key = encapsulate(kyber_public_key)
+    encrypted = aes_encrypt(plaintext, session_key)
+    mac = generate_hmac(encrypted["ciphertext"], session_key)
+    return {
+        "wrapped_key": wrapped_key,
+        "ciphertext": encrypted,
+        "hmac": mac
+    }
 
-class MockCryptoService:
-    """
-    PQC Hybrid Crypto DEMO:
+def hybrid_decrypt(encrypted_package: dict, kyber_secret_key: bytes):
+    session_key = decapsulate(encrypted_package["wrapped_key"], kyber_secret_key)
+    valid = verify_hmac(
+        encrypted_package["ciphertext"]["ciphertext"],
+        session_key,
+        encrypted_package["hmac"]
+    )
+    if not valid:
+        raise Exception("HMAC verification failed")
+    return aes_decrypt(encrypted_package["ciphertext"], session_key)
 
-    - Layer KEM: Kyber (mô phỏng bằng SHA256(ct))
-    - Layer mã hoá dữ liệu: AES-256-GCM
-    - Lưu vào DB:
-        encrypted_blob = base64( nonce || ciphertext )
-        wrapped_key    = base64( ct )   # ct là Kyber ciphertext
-    """
+def encode_b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
 
-    AES_KEY_BYTES = 32   # 256-bit AES
-    NONCE_BYTES = 12     # 96-bit nonce cho GCM
+def decode_b64(data: str) -> bytes:
+    return base64.b64decode(data)
 
-    @staticmethod
-    def encrypt(plaintext_data: dict) -> tuple[str, str]:
-        """
-        Encrypt một dict Python bằng hybrid Kyber + AES-GCM.
+def encode_cipher_json(cipher: dict) -> dict:
+    return {
+        "nonce": encode_b64(cipher["nonce"]),
+        "ciphertext": encode_b64(cipher["ciphertext"]),
+        "tag": encode_b64(cipher["tag"])
+    }
 
-        Returns:
-            encrypted_blob: base64(nonce || ciphertext)
-            wrapped_key:    base64(ct)  (Kyber ciphertext)
-        """
-        try:
-            # 1) JSON hoá dữ liệu
-            json_str = json.dumps(plaintext_data)
-            plaintext = json_str.encode("utf-8")
-
-            # 2) Kyber Encaps → ct, shared_secret
-            ct, shared_secret = kyber_encaps(DUMMY_PUBLIC_KEY)
-
-            # 3) Dùng shared_secret làm khoá AES-256
-            aes_key = shared_secret[:MockCryptoService.AES_KEY_BYTES]
-            nonce = os.urandom(MockCryptoService.NONCE_BYTES)
-
-            aes = AESGCM(aes_key)
-            ciphertext = aes.encrypt(nonce, plaintext, associated_data=None)
-
-            # 4) Gộp nonce + ciphertext rồi base64
-            blob = nonce + ciphertext
-            encrypted_blob = base64.b64encode(blob).decode("utf-8")
-
-            # 5) Gói ct thành wrapped_key (base64)
-            wrapped_key = base64.b64encode(ct).decode("utf-8")
-
-            logger.info("Data encrypted with Kyber-hybrid (simulated) + AES-GCM.")
-            return encrypted_blob, wrapped_key
-
-        except Exception as e:
-            logger.error(f"Encryption failed: {e}")
-            raise
-
-    @staticmethod
-    def decrypt(encrypted_blob: str, wrapped_key: str) -> dict:
-        """
-        Giải mã data đã encrypt bằng encrypt().
-
-        Args:
-            encrypted_blob: base64(nonce || ciphertext)
-            wrapped_key:    base64(ct)  (Kyber ciphertext)
-
-        Returns:
-            plaintext_data: dict
-        """
-        try:
-            # 1) Decode ct từ wrapped_key
-            ct = base64.b64decode(wrapped_key.encode("utf-8"))
-
-            # 2) Kyber Decaps → shared_secret
-            shared_secret = kyber_decaps(ct, DUMMY_PRIVATE_KEY)
-
-            # 3) Dùng shared_secret làm khoá AES
-            aes_key = shared_secret[:MockCryptoService.AES_KEY_BYTES]
-
-            # 4) Decode blob → tách nonce + ciphertext
-            blob = base64.b64decode(encrypted_blob.encode("utf-8"))
-            nonce = blob[:MockCryptoService.NONCE_BYTES]
-            ciphertext = blob[MockCryptoService.NONCE_BYTES:]
-
-            aes = AESGCM(aes_key)
-            plaintext = aes.decrypt(nonce, ciphertext, associated_data=None)
-
-            json_str = plaintext.decode("utf-8")
-            plaintext_data = json.loads(json_str)
-
-            logger.info("Data decrypted with Kyber-hybrid (simulated) + AES-GCM.")
-            return plaintext_data
-
-        except Exception as e:
-            logger.error(f"Decryption failed: {e}")
-            raise
-
-
-# Instance global – routers dùng cái này
-crypto_service = MockCryptoService()
+def decode_cipher_json(blob: dict) -> dict:
+    return {
+        "nonce": decode_b64(blob["nonce"]),
+        "ciphertext": decode_b64(blob["ciphertext"]),
+        "tag": decode_b64(blob["tag"])
+    }
