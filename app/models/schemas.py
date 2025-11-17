@@ -1,98 +1,139 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+"""Pydantic models for API request/response schemas"""
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 from uuid import UUID
+from pydantic import BaseModel, Field
 
-# ==================== PATIENT INTAKE DATA ====================
+
+# ============================================================================
+# Patient Intake Models
+# ============================================================================
+
 class PatientIntakeData(BaseModel):
-    """Patient's medical intake form (decrypted version)"""
+    """Patient intake form data"""
     age: int
     gender: str
     chief_complaint: str
-    medical_history: List[str]
-    current_medications: List[str]
-    allergies: List[str]
     symptoms: str
-    symptom_duration: str
+    duration: Optional[str] = None  # Accept either duration or symptom_duration
+    symptom_duration: Optional[str] = None  # Legacy field
+    medical_history: Any  # Can be string or list
+    current_medications: Any = None  # Can be string or list
+    allergies: Any = None  # Can be string or list
+    
+    class Config:
+        extra = "allow"  # Allow extra fields
+    
+    @property
+    def get_duration(self):
+        """Get duration from either field"""
+        return self.duration or self.symptom_duration or "Unknown"
+
 
 class LabResults(BaseModel):
-    """Lab test results"""
-    glucose: Optional[float] = None
+    """Laboratory test results"""
+    fasting_glucose: Optional[float] = None
     hba1c: Optional[float] = None
-    cholesterol: Optional[float] = None
-    triglycerides: Optional[float] = None
-    hdl: Optional[float] = None
-    ldl: Optional[float] = None
-    blood_pressure: Optional[str] = None
+    blood_pressure_systolic: Optional[int] = None
+    blood_pressure_diastolic: Optional[int] = None
     bmi: Optional[float] = None
+    cholesterol_total: Optional[float] = None
+    cholesterol_ldl: Optional[float] = None
+    cholesterol_hdl: Optional[float] = None
+    triglycerides: Optional[float] = None
+    test_notes: Optional[str] = None
 
-# ==================== ENCRYPTED DATA MODELS ====================
+
 class EncryptedPatientData(BaseModel):
-    """Encrypted patient data for submission"""
-    encrypted_intake: str = Field(..., description="Base64 encrypted intake data")
-    encrypted_lab_results: str = Field(..., description="Base64 encrypted lab results")
-    wrapped_key: str = Field(..., description="Wrapped encryption key")
-    appointment_time: datetime
-    doctor_id: UUID
+    """Encrypted patient submission"""
+    encrypted_intake: Any  # Allow any type
+    encrypted_lab_results: Any  # Allow any type
+    wrapped_key: Any  # Allow any type
+    doctor_id: Any  # Allow any type
+    appointment_time: Any  # Allow any type
+    
+    class Config:
+        extra = "allow"
+        arbitrary_types_allowed = True
 
-class PatientSubmitResponse(BaseModel):
-    """Response after patient submits data"""
+
+class AppointmentResponse(BaseModel):
+    """Response after submitting patient intake"""
     appointment_id: UUID
     status: str
     message: str
 
-# ==================== DOCTOR MODELS ====================
+
+# ============================================================================
+# Doctor Dashboard Models
+# ============================================================================
+
 class AppointmentListItem(BaseModel):
-    """Appointment in doctor's list"""
+    """Appointment list item for doctor dashboard"""
     appointment_id: UUID
-    patient_id: UUID
+    patient_id: Optional[UUID]
     appointment_time: datetime
     status: str
-    has_ai_analysis: bool
-    created_at: datetime
+    has_result: bool = False
+
 
 class DecryptedPatientRecord(BaseModel):
-    """Full decrypted patient record for doctor"""
+    """Decrypted patient record for doctor view"""
     appointment_id: UUID
-    patient_id: UUID
+    patient_id: Optional[str] = None  # Changed from UUID to str, can be None
     intake_data: PatientIntakeData
     lab_results: LabResults
     appointment_time: datetime
     status: str
+    
+    class Config:
+        extra = "allow"
 
-# ==================== AI ANALYSIS ====================
+
+class DoctorAnalysisRequest(BaseModel):
+    """Request for doctor analysis and approval"""
+    appointment_id: UUID
+    doctor_id: UUID
+    request_ai_analysis: bool = True
+    doctor_notes: str
+    approved: bool
+
+
+# ============================================================================
+# AI Analysis Models
+# ============================================================================
+
 class AIAnalysisResult(BaseModel):
-    """AI-generated clinical analysis"""
-    risk_score: int = Field(..., ge=0, le=100)
+    """AI analysis result structure"""
+    risk_score: float = Field(..., ge=0, le=10)
     primary_concerns: List[str]
     differential_diagnoses: List[str]
     recommended_tests: List[str]
-    follow_up_questions: List[str]
-    recommendations: List[str]
     clinical_summary: str
+    treatment_recommendations: List[str]
+    follow_up_timeline: str
 
-class DoctorAnalysisRequest(BaseModel):
-    """Doctor's request for AI analysis"""
-    doctor_id: UUID
-    request_ai_analysis: bool = True
-    doctor_notes: Optional[str] = None
-    approved: bool
+
+# ============================================================================
+# Consultation Result Models
+# ============================================================================
 
 class ConsultationResult(BaseModel):
-    """Final consultation result"""
+    """Encrypted consultation result"""
     appointment_id: UUID
     encrypted_result: str
     wrapped_key: str
     approved_by: UUID
     approved_at: datetime
-    doctor_name: str
+    doctor_name: Optional[str] = None
 
-# ==================== PATIENT RESULT ====================
+
 class PatientResultResponse(BaseModel):
-    """Patient's view of consultation results"""
+    """Patient-facing consultation result (decrypted)"""
     appointment_id: UUID
-    encrypted_result: str
-    wrapped_key: str
-    approved_by_doctor: str
-    approved_at: datetime
     status: str
+    approved_by: UUID
+    approved_at: datetime
+    doctor_name: Optional[str] = None
+    doctor_notes: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None

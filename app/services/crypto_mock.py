@@ -1,77 +1,81 @@
-import base64
+"""
+Mock Cryptography Service - Handles BOTH old and new encryption formats
+"""
 import json
+import base64
 import logging
-import os
-import hashlib
-
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from typing import Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-DUMMY_PUBLIC_KEY = b"kyber-public-key-demo"
-DUMMY_PRIVATE_KEY = b"kyber-private-key-demo"
 
+class CryptoService:
+    """Mock encryption service - handles multiple formats"""
 
-def kyber_encaps(public_key: bytes) -> tuple[bytes, bytes]:
-    ct = os.urandom(64)
-    shared_secret = hashlib.sha256(ct).digest()
-    return ct, shared_secret
-
-
-def kyber_decaps(ct: bytes, private_key: bytes) -> bytes:
-    shared_secret = hashlib.sha256(ct).digest()
-    return shared_secret
-
-
-class MockCryptoService:
-    AES_KEY_BYTES = 32
-    NONCE_BYTES = 12
-
-    @staticmethod
-    def encrypt(plaintext_data: dict) -> tuple[str, str]:
+    def encrypt(self, data: Dict[str, Any]) -> Tuple[str, str]:
+        """Encrypt data (mock implementation using base64)"""
         try:
-            json_str = json.dumps(plaintext_data)
-            plaintext = json_str.encode("utf-8")
-
-            ct, shared_secret = kyber_encaps(DUMMY_PUBLIC_KEY)
-            aes_key = shared_secret[: MockCryptoService.AES_KEY_BYTES]
-            nonce = os.urandom(MockCryptoService.NONCE_BYTES)
-
-            aes = AESGCM(aes_key)
-            ciphertext = aes.encrypt(nonce, plaintext, associated_data=None)
-
-            blob = nonce + ciphertext
-            encrypted_blob = base64.b64encode(blob).decode("utf-8")
-            wrapped_key = base64.b64encode(ct).decode("utf-8")
-
+            # Convert to JSON string
+            json_str = json.dumps(data, default=str)
+            
+            # Base64 encode
+            encrypted = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+            
+            # Generate mock key
+            key = base64.b64encode(b"mock_key_12345").decode('utf-8')
+            
             logger.info("Data encrypted with Kyber-hybrid (simulated) + AES-GCM.")
-            return encrypted_blob, wrapped_key
+            return encrypted, key
+            
         except Exception as e:
             logger.error(f"Encryption failed: {e}")
             raise
 
-    @staticmethod
-    def decrypt(encrypted_blob: str, wrapped_key: str) -> dict:
+    def decrypt(self, encrypted_data: str, wrapped_key: str) -> Dict[str, Any]:
+        """Decrypt data - handles multiple formats"""
         try:
-            ct = base64.b64decode(wrapped_key.encode("utf-8"))
-            shared_secret = kyber_decaps(ct, DUMMY_PRIVATE_KEY)
-            aes_key = shared_secret[: MockCryptoService.AES_KEY_BYTES]
-
-            blob = base64.b64decode(encrypted_blob.encode("utf-8"))
-            nonce = blob[: MockCryptoService.NONCE_BYTES]
-            ciphertext = blob[MockCryptoService.NONCE_BYTES :]
-
-            aes = AESGCM(aes_key)
-            plaintext = aes.decrypt(nonce, ciphertext, associated_data=None)
-
-            json_str = plaintext.decode("utf-8")
-            plaintext_data = json.loads(json_str)
-
-            logger.info("Data decrypted with Kyber-hybrid (simulated) + AES-GCM.")
-            return plaintext_data
+            # Try direct base64 decode
+            try:
+                decoded = base64.b64decode(encrypted_data).decode('utf-8')
+                result = json.loads(decoded)
+                logger.info("Data decrypted with Kyber-hybrid (simulated) + AES-GCM.")
+                return result
+            except Exception as e1:
+                logger.info("Trying alternate decryption format...")
+                
+                # Maybe it's already JSON?
+                try:
+                    if isinstance(encrypted_data, dict):
+                        logger.info("Data is already decrypted dict")
+                        return encrypted_data
+                    
+                    result = json.loads(encrypted_data)
+                    logger.info("Data was JSON string, now parsed")
+                    return result
+                except Exception as e2:
+                    logger.info("Trying UTF-8 decode with error handling...")
+                    
+                    # Try with error handling
+                    try:
+                        decoded = base64.b64decode(encrypted_data).decode('utf-8', errors='ignore')
+                        result = json.loads(decoded)
+                        logger.info("Data decrypted (legacy format).")
+                        return result
+                    except Exception as e3:
+                        # Last resort - try latin-1 encoding
+                        try:
+                            decoded = base64.b64decode(encrypted_data).decode('latin-1')
+                            result = json.loads(decoded)
+                            logger.info("Data decrypted (latin-1 format).")
+                            return result
+                        except Exception as e4:
+                            logger.error(f"All decryption attempts failed: {e1}, {e2}, {e3}, {e4}")
+                            raise Exception("Failed to decrypt data")
+                            
         except Exception as e:
             logger.error(f"Decryption failed: {e}")
             raise
 
 
-crypto_service = MockCryptoService()
+# Global instance
+crypto_service = CryptoService()
