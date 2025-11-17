@@ -45,3 +45,5 @@ htmlcov/
 
 # Docker
 *.log
+.env
+frontend/.env
