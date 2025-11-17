@@ -1026,7 +1026,7 @@ decrypted_data = crypto_service.decrypt(encrypted_blob, wrapped_key)
 
 **Why "Mock" Crypto?**
 
-For the 72-hour hackathon, we implemented a **simulated** Kyber-1024 system that:
+For the 60-hour hackathon, we implemented a **simulated** Kyber-1024 system that:
 - Uses the same API interface as real Kyber
 - Demonstrates the complete encryption workflow
 - Can be replaced with real `liboqs-python` in 1 day
@@ -1403,7 +1403,7 @@ Quantum-Secure-Clinical-AI-for-Safer-Patient-Analytics/
 ├── SETUP.md                     # Quick setup guide
 ├── TESTING_GUIDE.md            # Detailed testing instructions
 ├── TESTING_README.md           # Quick testing reference
-└── plan.md                      # Original 72-hour development plan
+└── plan.md                      # Original 60-hour development plan
 ```
 
 ### Key Files Explained
@@ -1434,7 +1434,7 @@ Quantum-Secure-Clinical-AI-for-Safer-Patient-Analytics/
 - `README.md`: Complete project documentation (this file)
 - `SETUP.md`: Quick start for team members
 - `TESTING_GUIDE.md`: Detailed testing procedures
-- `plan.md`: Original 72-hour development timeline
+- `plan.md`: Original 60-hour development timeline
 
 ---
 
@@ -1499,7 +1499,7 @@ Quantum-Secure-Clinical-AI-for-Safer-Patient-Analytics/
 - Sample data generation
 - API documentation
 
-**Hours 56-72: Final Polish**
+**Hours 56-60: Final Polish**
 - Documentation completion
 - Docker containerization
 - Demo preparation
@@ -1923,7 +1923,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 - **WHO** - Guidelines for AI in healthcare
 
 ### Team
-Thank you to our amazing team who made this possible in just 72 hours:
+Thank you to our amazing team who made this possible in just 60 hours:
 - Backend/AI: [Your Name]
 - Cryptography: Raymond
 - Frontend: [Team Members]
@@ -1986,7 +1986,7 @@ docker-compose down
 
 <div align="center">
 
-### 🏆 Built with ❤️ in 72 Hours
+### 🏆 Built with ❤️ in 60 Hours
 
 **Quantum-Safe Patient Analytics** | **Powered by FastAPI, Supabase & Google Gemini**
 
